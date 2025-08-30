@@ -261,13 +261,42 @@ def click_register_in_frame(driver, page):
                     """)
                     print('注入js，控制台输出12345完成')
                     
+                    # 等待验证码处理完成，然后检测是否成功
+                    print('等待验证码处理完成...')
+                    delay(15000)  # 等待15秒让验证码处理完成
+                    
+                    # 检测验证码是否验证成功
+                    try:
+                        # 检查是否有成功提示或页面跳转
+                        success_indicators = [
+                            '验证成功',
+                            '验证通过',
+                            'success',
+                            'completed',
+                            '验证码正确'
+                        ]
+                        
+                        page_text = driver.page_source.lower()
+                        captcha_success = any(indicator in page_text for indicator in success_indicators)
+                        
+                        if captcha_success:
+                            print('检测到验证码验证成功！')
+                            return True
+                        else:
+                            print('未检测到验证码验证成功，可能需要重新处理')
+                            return False
+                            
+                    except Exception as e:
+                        print(f'检测验证码状态时出错: {e}')
+                        return False
+                    
                 else:
                     print('未找到"电话注册"按钮')
                     
             except Exception as err:
                 print(f'点击电话注册按钮失败：{err}')
             
-            return True
+            return False
         
         # 递归查找子frame
         iframes = driver.find_elements(By.TAG_NAME, "iframe")
@@ -328,6 +357,9 @@ def run_flow(phone_line, show_window=True):
         clicked = click_register_in_frame(driver, driver)
         if not clicked:
             print('未找到注册按钮')
+        else:
+            # 如果注册流程成功完成，设置验证码验证成功标志
+            captcha_verified = True
         
         print('等待 3 分钟后继续下一个号码...')
         delay(30000)
@@ -344,7 +376,7 @@ def run_flow(phone_line, show_window=True):
         return False
 
 def main():
-    """主函数"""
+    """主函数，实现循环处理逻辑"""
     try:
         # 读取电话号码数据
         phone_data_path = os.path.join(os.path.dirname(__file__), 'phonedata.js')
@@ -360,15 +392,30 @@ def main():
             print('phonedata.js 文件为空')
             return
         
-        # 处理第一个号码（显示窗口）
-        phone = phone_lines[0]
-        print(f"开始处理第 1 个号码: {phone}")
+        print(f"总共读取到 {len(phone_lines)} 个电话号码")
         
-        success = run_flow(phone, show_window=True)
-        if success:
-            print('验证码验证成功')
-        else:
-            print('验证码验证未成功')
+        # 循环处理电话号码
+        i = 0  # 从第一个号码开始
+        while i < len(phone_lines):
+            phone = phone_lines[i]
+            print(f"\n开始处理第 {i + 1} 个号码: {phone}")
+            
+            # 前两个号码显示窗口，后续号码隐藏窗口
+            show_window = i < 2
+            
+            # 执行流程
+            success = run_flow(phone, show_window=show_window)
+            
+            if success:
+                print(f'第 {i + 1} 个号码验证码验证成功，进入下一个号码')
+                i += 1  # 处理下一个号码
+            else:
+                print(f'第 {i + 1} 个号码验证码验证未成功，重新处理当前号码')
+                # 不增加索引，重新处理当前号码
+                print('等待 3 分钟后重新处理当前号码...')
+                delay(180000)  # 等待3分钟
+        
+        print('所有号码处理完毕')
             
     except Exception as e:
         print(f"主程序执行失败: {e}")
