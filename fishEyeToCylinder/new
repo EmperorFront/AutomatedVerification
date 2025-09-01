@@ -1,0 +1,33 @@
+let k1 = distCoeffs.data64F[0];
+let k2 = distCoeffs.data64F[1];
+let p1 = distCoeffs.data64F[2];
+let p2 = distCoeffs.data64F[3];
+
+let fx = cameraMatrix.data64F[0];
+let fy = cameraMatrix.data64F[4];
+let cx = cameraMatrix.data64F[2];
+let cy = cameraMatrix.data64F[5];
+
+let k = Math.max(fx, fy);
+let map1 = new cv.Mat(inputImage.rows, inputImage.cols, cv.CV_32FC1);
+let map2 = new cv.Mat(inputImage.rows, inputImage.cols, cv.CV_32FC1);
+
+for (let j = 0; j < inputImage.rows; j++) {
+    for (let i = 0; i < inputImage.cols; i++) {
+        let x = (i - cx) / k;
+        let y = (j - cy) / k;
+        let r = Math.sqrt(x * x + y * y);
+        let theta = Math.atan(r);
+        let theta2 = theta * theta;
+        let theta4 = theta2 * theta2;
+        let theta6 = theta4 * theta2;
+        let theta8 = theta6 * theta2;
+        let theta_d = theta * (1 + k1 * theta2 + k2 * theta4);
+        let x_d = theta_d * x / r;
+        let y_d = theta_d * y / r;
+                let u = fx * x_d + cx;
+                let v = fy * y_d + cy;
+                map1.floatPtr(j, i)[0] = u;
+                map2.floatPtr(j, i)[0] = v;
+            }
+        }
