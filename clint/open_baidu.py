@@ -5,6 +5,8 @@ import time
 import random
 import json
 import re
+import hashlib
+import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -16,6 +18,88 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 def delay(ms):
     """延迟函数，与Node.js版本保持一致"""
     time.sleep(ms / 1000)
+
+def calculate_md5(content):
+    """计算内容的MD5值"""
+    if not content:
+        return ""
+    return hashlib.md5(content.encode('utf-8')).hexdigest()
+
+def check_chrome_availability():
+    """检查Chrome浏览器是否可用"""
+    chrome_paths = [
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        '/Applications/Chromium.app/Contents/MacOS/Chromium',
+        '/usr/bin/google-chrome',
+        '/usr/bin/chromium-browser'
+    ]
+    
+    for path in chrome_paths:
+        if os.path.exists(path):
+            print(f"✅ 找到Chrome浏览器: {path}")
+            
+            # 尝试获取Chrome版本
+            try:
+                import subprocess
+                result = subprocess.run([path, '--version'], 
+                                      capture_output=True, text=True, timeout=10)
+                if result.returncode == 0:
+                    version = result.stdout.strip()
+                    print(f"Chrome版本: {version}")
+                else:
+                    print("无法获取Chrome版本信息")
+            except Exception as e:
+                print(f"获取Chrome版本失败: {e}")
+            
+            return True
+    
+    print("❌ 未找到Chrome浏览器")
+    print("请安装Google Chrome浏览器：https://www.google.com/chrome/")
+    return False
+
+def verify_phone_data_authorization(phone_data_path):
+    """验证电话号码数据的授权"""
+    try:
+        # 读取电话号码数据
+        if not os.path.exists(phone_data_path):
+            print(f"错误：找不到电话号码数据文件: {phone_data_path}")
+            return False
+        
+        with open(phone_data_path, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+        
+        if not content:
+            print("错误：电话号码数据文件为空")
+            return False
+        
+        # 计算MD5值
+        md5_value = calculate_md5(content)
+        print(f"电话号码数据MD5值: {md5_value}")
+        
+        # 发送验证请求
+        url = f"http://101.43.152.10:8081/api/jsonp?key={md5_value}"
+        print(f"发送授权验证请求: {url}")
+        
+        try:
+            response = requests.get(url, timeout=10)
+            
+            if response.status_code == 200 and response.text.strip().lower() == "ok":
+                print("✅ 数据授权验证成功，继续执行...")
+                return True
+            else:
+                print(f"❌ 数据未授权，验证失败")
+                print(f"响应状态码: {response.status_code}")
+                print(f"响应内容: {response.text}")
+                return False
+                
+        except requests.exceptions.RequestException as e:
+            print(f"❌ 授权验证请求失败: {e}")
+            print("请检查网络连接")
+            return False
+            
+    except Exception as e:
+        print(f"❌ 验证过程中发生错误: {e}")
+        return False
 
 def get_random_user_agent():
     """随机读取useragent.js中的一行"""
@@ -329,11 +413,101 @@ def run_flow(phone_line, show_window=True):
     chrome_options.add_argument('--disable-blink-features=AutomationControlled')
     chrome_options.add_argument('--no-sandbox')
     chrome_options.add_argument('--disable-setuid-sandbox')
+    chrome_options.add_argument('--disable-dev-shm-usage')
+    chrome_options.add_argument('--disable-gpu')
+    chrome_options.add_argument('--remote-debugging-port=9222')
     chrome_options.add_experimental_option("detach", True)
     
+    # 尝试多个可能的Chrome路径
+    chrome_paths = [
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        '/Applications/Chromium.app/Contents/MacOS/Chromium',
+        '/usr/bin/google-chrome',
+        '/usr/bin/chromium-browser'
+    ]
+    
+    chrome_binary = None
+    for path in chrome_paths:
+        if os.path.exists(path):
+            chrome_binary = path
+            print(f"找到Chrome浏览器: {path}")
+            break
+    
+    if chrome_binary:
+        chrome_options.binary_location = chrome_binary
+    else:
+        print("警告：未找到Chrome浏览器，将使用系统默认路径")
+    
     try:
-        driver = webdriver.Chrome(options=chrome_options)
-        driver.set_page_load_timeout(300)
+        print("正在启动Chrome浏览器...")
+        
+        # 检查Chrome是否可用
+        if not chrome_binary:
+            print("❌ 错误：未找到Chrome浏览器")
+            print("请安装Google Chrome浏览器：https://www.google.com/chrome/")
+            return False
+        
+        try:
+            # 尝试多种方式启动Chrome
+            driver = None
+            
+            # 方法1: 使用默认ChromeDriver
+            try:
+                print("尝试使用默认ChromeDriver...")
+                driver = webdriver.Chrome(options=chrome_options)
+                print("✅ 使用默认ChromeDriver启动成功")
+            except Exception as e1:
+                print(f"默认ChromeDriver失败: {e1}")
+                
+                # 方法2: 尝试指定ChromeDriver路径
+                try:
+                    print("尝试使用系统ChromeDriver...")
+                    from selenium.webdriver.chrome.service import Service
+                    
+                    # 常见的ChromeDriver路径
+                    chromedriver_paths = [
+                        '/usr/local/bin/chromedriver',
+                        '/opt/homebrew/bin/chromedriver',
+                        '/usr/bin/chromedriver',
+                        '/Applications/ChromeDriver.app/Contents/MacOS/ChromeDriver'
+                    ]
+                    
+                    chromedriver_path = None
+                    for path in chromedriver_paths:
+                        if os.path.exists(path):
+                            chromedriver_path = path
+                            print(f"找到ChromeDriver: {path}")
+                            break
+                    
+                    if chromedriver_path:
+                        service = Service(chromedriver_path)
+                        driver = webdriver.Chrome(service=service, options=chrome_options)
+                        print("✅ 使用指定路径的ChromeDriver启动成功")
+                    else:
+                        raise Exception("未找到ChromeDriver")
+                        
+                except Exception as e2:
+                    print(f"指定路径ChromeDriver失败: {e2}")
+                    raise Exception("所有ChromeDriver启动方式都失败")
+            
+            if driver:
+                driver.set_page_load_timeout(300)
+            else:
+                raise Exception("无法创建Chrome驱动")
+            
+        except Exception as chrome_error:
+            print(f"❌ Chrome启动失败: {chrome_error}")
+            print("可能的原因：")
+            print("1. ChromeDriver版本不匹配")
+            print("2. Chrome浏览器版本过旧")
+            print("3. 权限问题")
+            print("4. ChromeDriver未安装或路径错误")
+            print("解决方案：")
+            print("- 更新Chrome浏览器到最新版本")
+            print("- 手动下载并安装ChromeDriver")
+            print("- 检查Chrome浏览器是否正常启动")
+            print("- 尝试重启程序")
+            return False
         
         if user_agent:
             driver.execute_cdp_cmd('Network.setUserAgentOverride', {"userAgent": user_agent})
@@ -375,24 +549,88 @@ def run_flow(phone_line, show_window=True):
             pass
         return False
 
+def get_resource_path(relative_path):
+    """获取资源文件的绝对路径，支持打包后的环境"""
+    try:
+        # 如果是打包后的环境，使用sys._MEIPASS
+        if hasattr(sys, '_MEIPASS'):
+            base_path = sys._MEIPASS
+        else:
+            # 开发环境，使用当前文件所在目录
+            base_path = os.path.dirname(__file__)
+        
+        return os.path.join(base_path, relative_path)
+    except Exception:
+        # 如果都失败了，尝试使用当前工作目录
+        return os.path.join(os.getcwd(), relative_path)
+
 def main():
     """主函数，实现循环处理逻辑"""
     try:
-        # 读取电话号码数据
-        phone_data_path = os.path.join(os.path.dirname(__file__), 'phonedata.js')
-        if os.path.exists(phone_data_path):
-            with open(phone_data_path, 'r', encoding='utf-8') as f:
-                phone_lines = [line.strip() for line in f.readlines() if line.strip()]
-        else:
-            # 如果没有phonedata.js文件，使用默认号码进行测试
+        print("=" * 60)
+        print("OpenBaidu自动化程序启动")
+        print("=" * 60)
+        
+        # 读取电话号码数据 - 支持打包后的环境
+        phone_data_paths = [
+            get_resource_path('clint/phonedata.js'),
+            get_resource_path('phonedata.js'),
+            os.path.join(os.path.dirname(__file__), 'phonedata.js'),
+            os.path.join(os.getcwd(), 'phonedata.js'),
+            os.path.join(os.getcwd(), 'clint/phonedata.js')
+        ]
+        
+        phone_lines = []
+        phone_data_path = None
+        
+        for path in phone_data_paths:
+            if os.path.exists(path):
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        phone_lines = [line.strip() for line in f.readlines() if line.strip()]
+                    phone_data_path = path
+                    print(f"成功读取电话号码数据文件: {path}")
+                    break
+                except Exception as e:
+                    print(f"尝试读取 {path} 失败: {e}")
+                    continue
+        
+        if not phone_lines:
+            # 如果没有找到任何数据文件，使用默认号码进行测试
             phone_lines = ['+65 92345678']
-            print("未找到phonedata.js文件，使用测试号码")
+            print("未找到任何phonedata.js文件，使用测试号码")
         
         if not phone_lines:
             print('phonedata.js 文件为空')
             return
         
         print(f"总共读取到 {len(phone_lines)} 个电话号码")
+        
+        # 检查Chrome浏览器是否可用
+        print("\n" + "=" * 60)
+        print("检查系统环境...")
+        print("=" * 60)
+        
+        if not check_chrome_availability():
+            print("\n" + "=" * 60)
+            print("❌ Chrome浏览器不可用，程序终止")
+            print("=" * 60)
+            return
+        
+        # 在启动前先验证数据授权
+        print("\n" + "=" * 60)
+        print("开始验证数据授权...")
+        print("=" * 60)
+        
+        if not verify_phone_data_authorization(phone_data_path):
+            print("\n" + "=" * 60)
+            print("❌ 数据未授权，程序终止")
+            print("=" * 60)
+            return
+        
+        print("\n" + "=" * 60)
+        print("✅ 数据授权验证通过，开始执行自动化流程")
+        print("=" * 60)
         
         # 循环处理电话号码
         i = 0  # 从第一个号码开始
